@@ -3,9 +3,7 @@
 // the JavaScript details for VueJS easy usage in GopherJS world.
 package vue
 
-import (
-	"github.com/gopherjs/gopherjs/js"
-)
+import "github.com/gopherjs/gopherjs/js"
 
 type LifeCycleEvent string
 
@@ -146,6 +144,10 @@ type Option struct {
 	props []string
 	// mixins
 	mixins []js.M
+	// filters
+	filters map[string]interface{}
+	// watches
+	watches map[string]interface{}
 }
 
 func NewOption() *Option {
@@ -156,13 +158,16 @@ func NewOption() *Option {
 	c.mevt = make(map[string]interface{}, 0)
 	c.props = []string{}
 	c.mixins = []js.M{}
+	c.filters = make(map[string]interface{}, 0)
+	c.watches = make(map[string]interface{}, 0)
 	return c
 }
 
 // NewViewModel create the VueJS instance for finally use
 // the VueJS instance becomes usable only after this call
 func (o *Option) NewViewModel() *ViewModel {
-	return newViewModel(vue.New(o.prepare()))
+	vm := newViewModel(vue.New(o.prepare()))
+	return vm
 }
 
 func (o *Option) NewComponent() *Component {
@@ -186,13 +191,19 @@ func (c *Option) prepare() (opts *js.Object) {
 	if len(c.mixins) > 0 {
 		c.Set("mixins", c.mixins)
 	}
+	if len(c.filters) > 0 {
+		c.Set("filters", c.filters)
+	}
+	if len(c.watches) > 0 {
+		c.Set("watches", c.watches)
+	}
 	return c.Object
 }
 
 // SetDataWithMethods set data and methods of the genereated VueJS instance
 // based on `structPtr` and `js.MakeWrapper(structPtr)`
 func (c *Option) SetDataWithMethods(structPtr interface{}) *Option {
-	c.Set("data", structPtr)
+	c.Data = structPtr // Not sure if this is right or not
 	c.Set("methods", js.MakeWrapper(structPtr))
 	return c
 }
@@ -257,7 +268,7 @@ func (c *Option) On(event string, fn func(vm *ViewModel, args []*js.Object)) *Op
 	return c
 }
 
-// AddProp add props to the genereated VueJS instance (optional)
+// AddProp add props to the generated VueJS instance (optional)
 // 	props is a list/hash of attributes that are exposed to accept data from
 // 	the parent component. It has a simple Array-based syntax and
 // 	an alternative Object-based syntax that allows advanced configurations
@@ -265,4 +276,25 @@ func (c *Option) On(event string, fn func(vm *ViewModel, args []*js.Object)) *Op
 func (c *Option) AddProp(name ...string) *Option {
 	c.props = append(c.props, name...)
 	return c
+}
+
+// AddFilter add a filter to the generated VueJS instance (optional)
+//    name is the name of the filter.  filter is a function that implements
+//    the filter.  It's called by Javascript so its type is not critical.
+//    "func(string) string" is a good starting point.
+func (c *Option) AddFilter(name string, filter interface{}) *Option {
+	c.filters[name] = filter
+	return c
+}
+
+// AddWatch add a watch to the generated VueJS instance (optional).
+//    exp is the expression to watch.  fn is the corresponding callback.
+func (c *Option) AddWatch(exp string, fn func(vm *ViewModel, args []*js.Object)) *Option {
+	return c.addMixin("watch", js.M{
+		exp: js.MakeFunc(func(this *js.Object, arguments []*js.Object) interface{} {
+			vm := newViewModel(this)
+			fn(vm, arguments)
+			return nil
+		}),
+	})
 }

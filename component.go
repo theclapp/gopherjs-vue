@@ -49,6 +49,7 @@ func GetComponent(name string) *Component {
 func NewComponent(
 	vmCreator func() (structPtr interface{}),
 	templateStr string,
+	setOpt func(o *Option),
 	replaceMountPoint ...bool,
 ) *Component {
 	// args
@@ -73,8 +74,12 @@ func NewComponent(
 	opt.Template = templateStr
 	opt.Replace = replace
 	opt.OnLifeCycleEvent(VmInit, func(vm *ViewModel) {
-		vm.Options.Set("methods", js.MakeWrapper(vmfn()))
-		vMap[vmfn()] = vm
+		instance := vmfn()
+		vm.Options.Set("methods", js.MakeWrapper(instance))
+		vMap[instance] = vm
 	})
+	if setOpt != nil {
+		setOpt(opt)
+	}
 	return opt.NewComponent()
 }
