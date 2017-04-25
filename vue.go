@@ -11,31 +11,42 @@ var (
 	vMap = make(map[interface{}]*ViewModel, 0)
 )
 
-// type Value represents the VueJS wrapped observed Array or Object
-// the wrapped methods can be used to trigger view update.
-// `*Value` is usually returned by calling `ViewModel.Get()`
-type Value struct {
-	/////// Normal value operation as js.Object
-	*js.Object
+// Add in the bottom of the array
+func Push(obj *js.Object, any interface{}) (idx int) {
+	return obj.Call("push", any).Int()
+}
 
-	/////// VueJS wrapped Array Operations
-	/////// in fact normal gopherjs slice ops would effect
-	/////// the save way
-	// Add in the bottom of the array
-	Push func(any interface{}) (idx int) `js:"push"`
-	// Remove in the bottom of the array
-	Pop func() (idx int) `js:"pop"`
-	//Add in the front of the array
-	Unshift func(any interface{}) (idx int) `js:"unshift"`
-	//Remove in the front of the array
-	Shift func() (idx int) `js:"shift"`
-	//array slice operation
-	// index	required,position to add to(remove from),negative means reverse
-	// howmany	required,number of items to remove, 0 means no remove
-	// items... optional,add new items to the array
-	Splice  func(index, howmany int, items ...interface{}) *js.Object `js:"splice"`
-	Sort    func(sorter func(a, b *js.Object) int) *js.Object         `js:"sort"`
-	Reverse func() *js.Object                                         `js:"reverse"`
+// Remove in the bottom of the array
+func Pop(obj *js.Object) (idx int) {
+	return obj.Call("pop").Int()
+}
+
+//Add in the front of the array
+func Unshift(obj *js.Object, any interface{}) (idx int) {
+	return obj.Call("unshift", any).Int()
+}
+
+//Remove in the front of the array
+func Shift(obj *js.Object) (idx int) {
+	return obj.Call("shift").Int()
+}
+
+//array slice operation
+// index	required,position to add to(remove from),negative means reverse
+// howmany	required,number of items to remove, 0 means no remove
+// items... optional,add new items to the array
+func Splice(obj *js.Object, index, howmany int, items ...interface{}) *js.Object {
+	args := []interface{}{index, howmany}
+	args = append(args, items...)
+	return obj.Call("splice", args...)
+}
+
+func Sort(obj *js.Object, sorter func(a, b *js.Object) int) *js.Object {
+	return obj.Call("sort", sorter)
+}
+
+func Reverse(obj *js.Object) *js.Object {
+	return obj.Call("reverse")
 }
 
 // type Vue represents the JavaScript side VueJS instance or VueJS component
@@ -97,6 +108,15 @@ type ViewModel struct {
 	// 	The direct child components of the current instance.
 	Children *js.Object `js:"$children"`
 
+	// vm.$slots
+	// 	Type: { [name: string]: ?Array<VNode> }
+	// Read only
+	// Details:
+	// 	Used to programmatically access content distributed by slots.
+	//  Each named slot has its own corresponding property
+	// 	Accessing vm.$slots is most useful when writing a component with a render function.
+	Slots *js.Object `js:"$slots"`
+
 	// vm.$refs
 	// 	Type: Object
 	// 	Read only
@@ -107,13 +127,12 @@ type ViewModel struct {
 	// 	v-ref.
 	Refs *js.Object `js:"$refs"`
 
-	// vm.$els
-	// 	Type: Object
-	// 	Read only
+	// vm.$isServer
+	// Type: boolean
+	// Read only
 	// Details:
-	// 	An object that holds DOM elements that have v-el registered.
-	// See also: v-el.
-	Els *js.Object `js:"$els"`
+	// Whether the current Vue instance is running on the server.
+	IsServer bool `js:"$isServer"`
 
 	// vm.$watch( expression, callback, [deep, immediate] )
 	//  expression String
@@ -128,20 +147,6 @@ type ViewModel struct {
 		deepWatch bool,
 	) (unwatcher func()) `js:"$watch"`
 
-	// vm.$eval( expression )
-	// 	expression String
-	// Evaluate an expression that can also contain filters.
-	// assuming vm.msg = 'hello'
-	// vm.$eval('msg | uppercase') // -> 'HELLO'
-	Eval func(expression string) *js.Object `js:"$eval"`
-
-	// vm.$get( expression )
-	// 	expression String
-	// Retrieve a value from the Vue instance given an expression.
-	// Expressions that throw errors will be suppressed
-	// and return undefined.
-	Get func(expression string) *Value `js:"$get"`
-
 	// vm.$set( keypath, value )
 	// 	keypath String
 	// 	value *
@@ -149,64 +154,12 @@ type ViewModel struct {
 	// If the path doesn’t exist it will be created.
 	Set func(keypath string, val interface{}) `js:"$set"`
 
-	// vm.$add( keypath, value )
-	//
-	// 	keypath String
-	// 	value *
-	// Add a root level property to the Vue instance (and also its $data).
-	// Due to the limitations of ES5, Vue cannot detect properties directly
-	// added to or deleted from an Object,
-	// so use this method and vm.$delete when you need to do so. Additionally,
-	// all observed objects are augmented with these two methods too.
-	Add func(keypath string, val interface{}) `js:"$add"`
-
 	// vm.$delete( keypath )
 	// 	keypath String
 	// Delete a root level property on the Vue instance (and also its $data).
 	Delete func(keypath string) `js:"$delete"`
 
-	// vm.$interpolate( templateString )
-	// 	templateString String
-	// Evaluate a piece of template string containing
-	// mustache interpolations.
-	// Note that this method simply performs string interpolation;
-	// attribute directives are not compiled.
-	//
-	// // assuming vm.msg = 'hello'
-	// vm.$interpolate('{{msg}} world!') // -> 'hello world!'
-	Interpolate func(templateString string) `js:"$interpolate"`
-
 	////////////////////////////////// Events
-
-	// Each vm is also an event emitter.
-	// When you have multiple nested ViewModels,
-	// you can use the event system to communicate between them.
-	//
-	// vm.$dispatch( event, [args…] )
-	//	event String
-	// 	args… optional
-	//
-	// Dispatch an event from the current vm that propagates
-	// all the way up to its $root. If a callback returns false,
-	// it will stop the propagation at its owner instance.
-	Dispatch func(event string, args ...interface{}) `js:"$dispatch"`
-
-	// vm.$broadcast( event, [args…] )
-	// 	event String
-	// 	args… optional
-	//
-	// Emit an event to all children vms of the current vm,
-	// which gets further broadcasted to their children all the way down.
-	// If a callback returns false, its owner instance will not broadcast
-	// the event any further.
-	Broadcast func(event string, args ...interface{}) `js:"$broadcast"`
-
-	// vm.$emit( event, [args…] )
-	// 	event String
-	// args… optional
-	//
-	// Trigger an event on this vm only.
-	Emit func(event string, args ...interface{}) `js:"$emit"`
 
 	// vm.$on( event, callback )
 	// 	event String
@@ -232,35 +185,12 @@ type ViewModel struct {
 	// remove that specific callback only.
 	Off func(event ...string) `js:"$off"`
 
-	// DOM
-	// All vm DOM manipulation methods work like their jQuery counterparts -
-	// except they also trigger Vue.js transitions if there are any declared
-	// on vm’s $el. For more details on transitions
-	// see Adding Transition Effects.
-
-	// vm.$appendTo( element|selector, [callback] )
-	// 	element HTMLElement | selector String
-	// callback Function optional
-	// Append the vm’s $el to target element. The argument can be either
-	// an element or a querySelector string.
-	AppendTo func(elementOrselector string) `js:"$appendTo"`
-
-	// vm.$before( element|selector, [callback] )
-	// 	element HTMLElement | selector String
-	// callback Function optional
-	// Insert the vm’s $el before target element.
-	Before func(elementOrselector string) `js:"$before"`
-
-	// vm.$after( element|selector, [callback] )
-	// 	element HTMLElement | selector String
-	// callback Function optional
-	// Insert the vm’s $el after target element.
-	After func(elementOrselector string) `js:"$after"`
-
-	// vm.$remove( [callback] )
-	// 	callback Function optional
-	// Remove the vm’s $el from the DOM.
-	Remove func() `js:"$remove"`
+	// vm.$emit( event, [args…] )
+	// 	event String
+	// args… optional
+	//
+	// Trigger an event on this vm only.
+	Emit func(event string, args ...interface{}) `js:"$emit"`
 
 	/////////////////////   Lifecycle
 
@@ -273,7 +203,21 @@ type ViewModel struct {
 	// on an already mounted instance will have no effect.
 	// The method returns the instance itself so you can chain other
 	// instance methods after it.
-	Mount func(elementOrselector string) *ViewModel `js:"$mount"`
+	Mount func(elementOrselector ...interface{}) *js.Object `js:"$mount"`
+
+	// vm.$forceUpdate()
+	// Usage:
+	// Force the Vue instance to re-render.
+	// Note it does not affect all child components,
+	// only the instance itself and child components with inserted slot content.
+	ForceUpdate func() `js:"$forceUpdate"`
+
+	// vm.$nextTick( [callback] )
+	// Arguments:
+	// {Function} [callback]
+	// Usage:
+	// Defer the callback to be executed after the next DOM update cycle. Use it immediately after you’ve changed some data to wait for the DOM update. This is the same as the global Vue.nextTick, except that the callback’s this context is automatically bound to the instance calling this method.
+	NextTick func(cb func()) `js:"$nextTick"`
 
 	// vm.$destroy( [remove] )
 	//  remove Boolean optional
@@ -282,50 +226,6 @@ type ViewModel struct {
 	// unbind all its directives and remove its $el from the DOM.
 	// Also, all $on and $watch listeners will be automatically removed.
 	Destroy func(remove bool) `js:"$destroy"`
-
-	// vm.$compile( element )
-	// 	element HTMLElement
-	// Partially compile a piece of DOM (Element or DocumentFragment).
-	// The method returns a decompile function that tearsdown the directives
-	// created during the process.
-	// Note the decompile function does not remove the DOM.
-	// This method is exposed primarily for
-	// writing advanced custom directives.
-	Compile func(element string) `js:"$compile"`
-
-	// vm.$addChild( [options, constructor] )
-	//  options Object optional
-	//  constructor Function optional
-	//
-	// Adds a child instance to the current instance.
-	// The options object is the same in manually instantiating an instance.
-	// Optionally you can pass in a constructor created from Vue.extend().
-	//
-	// There are three implications of
-	// a parent-child relationship between instances:
-	//  The parent and child can communicate via the event system.
-	//  The child has access to all parent assets (e.g. custom directives).
-	//  The child, if inheriting parent scope,
-	//   has access to parent scope data properties.
-	AddChild func(options js.M) `js:"$addChild"`
-
-	// vm.$log( [keypath] )
-	//
-	// keypath String optional
-	// Log the current instance data as a plain object, which is more
-	// console-inspectable than a bunch of getter/setters.
-	// Also accepts an optional key.
-	//
-	// vm.$log() // logs entire ViewModel data
-	// vm.$log('item') // logs vm.item
-	Log func(keypath ...interface{}) `js:"$log"`
-
-	// Defer the callback to be executed after the next DOM update cycle.
-	// Use it immediately after you’ve changed some data to
-	// wait for the DOM update. This is the same as the global
-	// Vue.nextTick, except that the callback’s this context is
-	// automatically bound to the instance calling this method.
-	NextTick func(cb func()) `js:"$nextTick"`
 }
 
 // New creates a VueJS Instance to apply bidings between `structPtr` and
@@ -390,7 +290,7 @@ func GetVM(structPtr interface{}) *ViewModel {
 	return vm
 }
 
-// WatchEx using a simpler form to do Vue.$watch
+// Watch using a simpler form to do Vue.$watch
 func (v *ViewModel) Watch(expression string, callback func(newVal *js.Object)) (unwatcher func()) {
 	obj := v.Call("$watch", expression, callback)
 	return func() {

@@ -8,19 +8,19 @@ import "github.com/gopherjs/gopherjs/js"
 type LifeCycleEvent string
 
 const (
-	VmInit          LifeCycleEvent = "init"
-	VmCreated       LifeCycleEvent = "created"
-	VmBeforeCompile LifeCycleEvent = "beforeCompile"
-	VmCompiled      LifeCycleEvent = "compiled"
-	VmReady         LifeCycleEvent = "ready"
-	VmAttached      LifeCycleEvent = "attached"
-	VmDetached      LifeCycleEvent = "detached"
-	VmBeforeDestroy LifeCycleEvent = "beforeDestroy"
-	VmDestroyed     LifeCycleEvent = "destroyed"
+	EvtBeforeCreate  LifeCycleEvent = "beforeCreate"
+	EvtCreated       LifeCycleEvent = "created"
+	EvtBeforeMount   LifeCycleEvent = "beforeMount"
+	EvtMounted       LifeCycleEvent = "mounted"
+	EvtBeforeUpdate  LifeCycleEvent = "beforeUpdate"
+	EvtUpdated       LifeCycleEvent = "updated"
+	EvtActivated     LifeCycleEvent = "activated"
+	EvtDeactivated   LifeCycleEvent = "deactivated"
+	EvtBeforeDestroy LifeCycleEvent = "beforeDestroy"
+	EvtDestroyed     LifeCycleEvent = "destroyed"
 )
 
-// Option are used to organize mutiple sub component together to
-// construct VueJS apps or (higher level) components.
+// Option is used to config VueJS instance or to create VueJS components.
 type Option struct {
 	*js.Object
 
@@ -111,19 +111,6 @@ type Option struct {
 	// use of the common <script type="x-template"> trick to include templates.
 	Template string `js:"template"`
 
-	// 	Type: Boolean
-	//
-	// Default: true
-	//
-	// Restriction: only respected if the template option is also present.
-	//
-	// Details:
-	//
-	// Determines whether to replace the element being mounted on with the
-	// template. If set to false, the template will overwrite the element’s inner
-	// content without replacing the element itself.
-	Replace bool `js:"replace"`
-
 	// parent
 	//
 	// Type: Vue instance
@@ -136,10 +123,29 @@ type Option struct {
 	// into the parent’s $children array.
 	Parent *js.Object `js:"parent"`
 
+	// delimiters
+	//
+	// Type: Array<string>
+	//
+	// default: ["{{", "}}"]
+	//
+	// Details:
+	//
+	// Change the plain text interpolation delimiters.
+	// This option is only available in the standalone build.
+	Delimiters []string `js:"delimiters"`
+
+	// functional
+	// Type: boolean
+	// Details:
+	// 	Causes a component to be stateless (no data) and
+	// 	instanceless (no this context).
+	// 	They are simply a render function that returns virtual nodes
+	// 	making them much cheaper to render.
+	Functional []string `js:"functional"`
+
 	// map to sub component
-	mcom map[string]*Component
-	// map to event handler
-	mevt map[string]interface{}
+	coms map[string]*Component
 	// properties
 	props []string
 	// mixins
@@ -154,8 +160,7 @@ func NewOption() *Option {
 	c := &Option{
 		Object: js.Global.Get("Object").New(),
 	}
-	c.mcom = make(map[string]*Component, 0)
-	c.mevt = make(map[string]interface{}, 0)
+	c.coms = make(map[string]*Component, 0)
 	c.props = []string{}
 	c.mixins = []js.M{}
 	c.filters = make(map[string]interface{}, 0)
@@ -179,11 +184,8 @@ func (o *Option) NewComponent() *Component {
 
 // prepare set the proper options into js.Object
 func (c *Option) prepare() (opts *js.Object) {
-	if len(c.mcom) > 0 {
-		c.Set("components", c.mcom)
-	}
-	if len(c.mevt) > 0 {
-		c.Set("events", c.mevt)
+	if len(c.coms) > 0 {
+		c.Set("components", c.coms)
 	}
 	if len(c.props) > 0 {
 		c.Set("props", c.props)
@@ -203,7 +205,10 @@ func (c *Option) prepare() (opts *js.Object) {
 // SetDataWithMethods set data and methods of the genereated VueJS instance
 // based on `structPtr` and `js.MakeWrapper(structPtr)`
 func (c *Option) SetDataWithMethods(structPtr interface{}) *Option {
-	c.Data = structPtr // Not sure if this is right or not
+	if structPtr == nil {
+		return c
+	}
+	c.Set("data", structPtr)
 	c.Set("methods", js.MakeWrapper(structPtr))
 	return c
 }
@@ -218,6 +223,43 @@ func (o *Option) AddMethod(name string, fn func(vm *ViewModel, args []*js.Object
 			return nil
 		}),
 	})
+}
+
+type CreateElement func(tagName string, data interface{}, children []interface{}) (vnode *js.Object)
+type Render func(vm *ViewModel, fn CreateElement)
+
+func (o *Option) SetRender(r Render) {
+	fn := js.MakeFunc(func(this *js.Object, arguments []*js.Object) interface{} {
+		vm := newViewModel(this)
+		jsCreateElement := arguments[0]
+		createElement := func(tagName string, data interface{}, children []interface{}) (vnode *js.Object) {
+			return jsCreateElement.Call(tagName, data, children)
+		}
+		r(vm, createElement)
+		return nil
+	})
+	o.Object.Set("render", fn)
+}
+
+// AddComputed set computed data
+func (o *Option) AddComputed(name string, getter func(vm *ViewModel) interface{}, setter ...func(vm *ViewModel, val *js.Object)) {
+	conf := make(map[string]js.M)
+	conf[name] = make(js.M)
+	fnGetter := js.MakeFunc(func(this *js.Object, arguments []*js.Object) interface{} {
+		vm := newViewModel(this)
+		return getter(vm)
+	})
+	conf[name]["get"] = fnGetter
+	if len(setter) > 0 {
+		fnSetter := js.MakeFunc(func(this *js.Object, arguments []*js.Object) interface{} {
+			vm := newViewModel(this)
+			setter[0](vm, arguments[0])
+			return nil
+		})
+		conf[name]["set"] = fnSetter
+	}
+	// using mixin here
+	o.addMixin("computed", conf)
 }
 
 func (o *Option) OnLifeCycleEvent(evt LifeCycleEvent, fn func(vm *ViewModel)) *Option {
@@ -254,17 +296,7 @@ func (c *Option) addMixin(name string, val interface{}) *Option {
 
 // AddComponent add sub component to the genereated VueJS instance (optional)
 func (c *Option) AddSubComponent(name string, sub *Component) *Option {
-	c.mcom[name] = sub
-	return c
-}
-
-// On add EventHandler to VueJS-generated component-oriented event
-// for cross component message passing
-func (c *Option) On(event string, fn func(vm *ViewModel, args []*js.Object)) *Option {
-	c.mevt[event] = js.MakeFunc(func(this *js.Object, args []*js.Object) interface{} {
-		fn(newViewModel(this), args)
-		return nil
-	})
+	c.coms[name] = sub
 	return c
 }
 

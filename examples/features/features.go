@@ -2,24 +2,27 @@ package main
 
 import (
 	"fmt"
-	"github.com/gopherjs/gopherjs/js"
-	"github.com/oskca/gopherjs-vue"
 	"math/rand"
 	"strings"
 	"time"
+
+	"github.com/gopherjs/gopherjs/js"
+	"github.com/oskca/gopherjs-vue"
 )
 
 // no *js.Object struct can only be manipulated by ViewModel.methods
 type Todo struct {
-	Time    time.Time
-	Content string
+	*js.Object
+	Time    string `js:"time"`
+	Content string `js:"content"`
 }
 
 func NewTodo(content string) *Todo {
 	t := &Todo{
-		Time:    time.Now(),
-		Content: content,
+		Object: js.Global.Get("Object").New(),
 	}
+	t.Time = time.Now().String()
+	t.Content = content
 	return t
 }
 
@@ -51,16 +54,21 @@ func (m *Model) Repeat() {
 	// for i, key := range js.Keys(vm.Object) {
 	// 	println(i, key)
 	// }
-	println("integer from vm:", vm.Get("integer").Int())
+	// println("integer from vm:", vm.Get("integer").Int())
+	println("integer from vm:", vm.Data.Get("integer").Int())
 }
 
 func (m *Model) PopulateTodo() {
 	// using append would cause GopherJS internalization problems
+	// but this way works with Todo has js.Object embeded
+	m.Todos = append(m.Todos, NewTodo(m.Str))
+}
+
+func (m *Model) PopulateTodo2() {
 	// so it's better to use VueJS ops to manipulates the array
-	// m.Todos = append(m.Todos, NewTodo(m.Str))
 	vm := vue.GetVM(m)
 	todos := vm.Get("todos")
-	todos.Unshift(NewTodo(m.Str))
+	vue.Push(todos, NewTodo(m.Str))
 }
 
 func (m *Model) MapTodos() {
@@ -81,7 +89,7 @@ func (m *Model) ShiftTodo() {
 	// m.Todos = m.Todos[1:]
 	vm := vue.GetVM(m)
 	todos := vm.Get("todos")
-	todos.Shift()
+	vue.Shift(todos)
 }
 
 func (m *Model) WhatTF() string {
@@ -96,7 +104,8 @@ func (m *Model) DoubleInt() int {
 
 func main() {
 	// register a time formating filter
-	vue.NewFilter(func(t time.Time) string {
+	vue.NewFilter(func(v *js.Object) interface{} {
+		t, _ := time.Parse("2006-01-02 15:04:05.999999999 -0700 MST", v.String())
 		return t.Format("2006-01-02 15:04:05")
 	}).Register("timeFormat")
 	// begin vm
@@ -108,6 +117,7 @@ func main() {
 	m.IntValue = 100
 	m.Str = "a string"
 	m.List = []int{1, 2, 3, 4}
+	// m.Todos = []*Todo{NewTodo("Good Day")}
 	m.Todos = []*Todo{}
 	m.AllItems = []string{"A", "B", "C", "D", "John", "Bill"}
 	m.CheckedItems = []string{"A", "B"}

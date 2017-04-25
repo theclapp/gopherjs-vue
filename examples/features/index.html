@@ -20,28 +20,30 @@
         <template v-for="item in AllItems">
             <label style="display: inline;">
                 {{item}}
-                <input type="checkbox" id="{{item}}" value="{{item}}" v-model="CheckedItems" />
+                <input type="checkbox" :id="item" :value="item" v-model="CheckedItems" />
             </label>
         </template>
         <div>
-            <span>CheckedItems: {{ CheckedItems | json }}</span>
+            <span>CheckedItems: {{ CheckedItems }}</span>
         </div>
         <input v-model="integer">
         <button @click="Inc">Inc</button>
         <button @click="Repeat">Repeat</button>
         <button @click="PopulateTodo">PopulateTodo</button>
+        <button @click="PopulateTodo2">PopulateTodo2</button>
         <button @click="ShiftTodo">ShiftTodo</button>
         <button @click="MapTodos">MapTodos</button>
         <li v-for="item in list">
             {{ item }}
         </li>
         <input v-model="str" />
+        Todos:<br>
         <ul v-for="todo in todos">
-            <li>{{todo.Time | timeFormat}} - {{todo.Content}}</li>
+            <li>{{todo.time | timeFormat}} - {{todo.content}}</li>
         </ul>
         <p>{{str}}</p>
     </div>
     <script type="text/javascript" src="features.js"></script>
-</body>
+</bodyk
 
 </html>
